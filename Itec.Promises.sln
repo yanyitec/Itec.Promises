@@ -1,0 +1,30 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.27703.2018
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{898EA273-D2AA-47CA-A85B-C2FDA619B81A}"
+	ProjectSection(SolutionItems) = preProject
+		..\Itec.Logs\.gitignore = ..\Itec.Logs\.gitignore
+	EndProjectSection
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Itec.Promises", "Itec.Promises\Itec.Promises.csproj", "{7A6FCD83-D384-41CA-9555-9BB88DCA219C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7A6FCD83-D384-41CA-9555-9BB88DCA219C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7A6FCD83-D384-41CA-9555-9BB88DCA219C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7A6FCD83-D384-41CA-9555-9BB88DCA219C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7A6FCD83-D384-41CA-9555-9BB88DCA219C}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {8FE658FE-E58D-407C-AE12-11A140459B35}
+	EndGlobalSection
+EndGlobal
