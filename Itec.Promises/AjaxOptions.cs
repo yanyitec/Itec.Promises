@@ -18,12 +18,12 @@ namespace Itec.Promises
 
         public bool IsMulticastWaitable { get; set; }
 
-        public Action<object, AjaxOptions, string, Ajax> success;
+        public Action<object, Visit> success;
         /// <summary>
         /// 只接受连接错误的异常，其他异常由Ajax对象自己丢出
         /// </summary>
 
-        public Func<Exception, AjaxOptions, string, Ajax,bool> error;
+        public Func<Exception, Visit,bool> error;
 
         public string method;
         public string Method {

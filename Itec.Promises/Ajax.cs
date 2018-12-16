@@ -12,21 +12,21 @@ namespace Itec.Promises
     {
         public Ajax(Type responseType) {
             this.ResponseType = responseType;
-            this.contentTypes = MineType.MineTypes;
+            //this.contentTypes = MineType.MineTypes;
         }
-        Dictionary<string, MineType> contentTypes;
+        //Dictionary<string, MineType> contentTypes;
 
         public Type ResponseType { get; private set; }
 
         Func<string, string> _ResponseHeaderGetter;
 
-        public object Request(AjaxOptions opts) {
+        public static object Request(AjaxOptions opts,Ajax ajax=null) {
 
             if (opts.Urls != null)
             {
                 if (opts.IsMulticast)
                 {
-                    return this.MulticastWaitResult(opts);
+                    return MulticastWaitResult(opts);
                 }
                 else
                 {
@@ -34,11 +34,15 @@ namespace Itec.Promises
                     bool reqSuccess = false;
                     foreach (var url in opts.Urls)
                     {
-                        var retObj = this.InternalRequest(opts,(re,o,aurl,me)=> {
+                        opts.url = url;
+                        var visit = MakeVisitFromOptions(opts,ajax);
+                        var retObj = InternalRequest(visit, (re, v) =>
+                        {
                             reqSuccess = true;
-                            if (opts.success != null) opts.success(re, o, aurl, me);
-                        }, (re, o, aurl, me) => {
-                            exs.Add(url,re);
+                            if (opts.success != null) opts.success(re,v);
+                        }, (re, v) =>
+                        {
+                            exs.Add(url, re);
                             return true;
                         });
                         if (reqSuccess)
@@ -50,16 +54,20 @@ namespace Itec.Promises
                     var ex = new MultiUrlException(opts, exs);
                     if (opts.error != null)
                     {
-                        if (opts.error(ex, opts, null, this)) throw ex;
+                        if (opts.error(ex, new Visit(opts,ajax))) throw ex;
                         return null;
                     }
                     else throw ex;
                 }
             }
-            else return this.InternalRequest(opts,opts.success,opts.error);
+            else
+            {
+
+                return InternalRequest(MakeVisitFromOptions(opts,ajax), opts.success, opts.error);
+            }
         }
 
-        public async Task<object> RequestAsync(AjaxOptions opts)
+        public static async Task<object> RequestAsync(AjaxOptions opts,Ajax ajax=null)
         {
             if (opts.Urls != null)
             {
@@ -71,7 +79,7 @@ namespace Itec.Promises
                     }
                     else
                     {
-                        MulticastUseAsync(opts);
+                        MulticastUseAsync(opts,ajax);
                         return null;
                     }
                 }
@@ -79,11 +87,12 @@ namespace Itec.Promises
                     Dictionary<string, Exception> exs = new Dictionary<string, Exception>();
                     foreach (var url in opts.Urls) {
                         opts.url = url;
+                        var visit = MakeVisitFromOptions(opts,ajax);
                         bool isSuccess = false;
-                        var rs = await this.InternalRequestAsync(opts, (ret,o,aurl,me)=> {
+                        var rs = await InternalRequestAsync(visit, (ret,v)=> {
                             isSuccess = true;
-                            if (opts.success != null) opts.success(ret, o, aurl, me);
-                        }, (ret, o, aurl, me) => {
+                            if (opts.success != null) opts.success(ret, v);
+                        }, (ret, v) => {
                             exs.Add(url,ret);
                             return true;
                         });
@@ -92,32 +101,32 @@ namespace Itec.Promises
                     }
                     var ex = new MultiUrlException(opts, exs);
                     if (opts.error != null) {
-                        if (!opts.error(ex, opts, null, this)) throw ex;
+                        if (!opts.error(ex, new Visit(opts,ajax))) throw ex;
                         return null;
                     }else throw ex;
                 }
             }
-            else return await this.InternalRequestAsync(opts,opts.success,opts.error);
+            else return await InternalRequestAsync(MakeVisitFromOptions(opts,ajax),opts.success,opts.error);
         }
 
-        void MulticastUseAsync(AjaxOptions opts) {
-            var results = new MulticastResults(this, opts);
+        static void MulticastUseAsync(AjaxOptions opts,Ajax ajax) {
+            var results = new MulticastResults(ajax, opts);
             int count = 0;
             int total = opts.Urls.Count();
             Action<string,Visit,MulticastResults> req = (url,visit,rs)=>{
                 opts.url = url;
-                this.InternalRequestAsync(opts, (ret, options, actualUrl, ajax) => {
+                InternalRequestAsync(visit, (ret, v) => {
 
-                    visit.Result = ret;
-                    results.AddSuccess(visit);
-                    lock(this) count++;
+                    v.Result = ret;
+                    results.AddSuccess(v);
+                    lock(results) count++;
                     if (count == total)
                     {
                         if (results.Errors.Count > 0)
                         {
                             if (opts.error != null)
                             {
-                                if (!opts.error(results, opts, null, this)) throw results;
+                                if (!opts.error(results, v)) throw results;
                             }
                             else
                             {
@@ -125,19 +134,19 @@ namespace Itec.Promises
                             }
                         }
                         else {
-                            if (opts.success != null) opts.success(results,opts,null,this);
+                            if (opts.success != null) opts.success(results,v);
                         }
                     }
-                }, (err, options, actualUrl, ajax) => {
+                }, (err, v) => {
 
                     visit.Exception = err;
                     results.AddError(visit);
-                    lock(this)count++;
+                    lock(results) count++;
                     if (count == total)
                     {
                         if (opts.error != null)
                         {
-                            if (!opts.error(results, opts, null, this)) throw results;
+                            if (!opts.error(results, v)) throw results;
                         }
                         else
                         {
@@ -148,57 +157,59 @@ namespace Itec.Promises
                 }).Start();
             };
             foreach (var url in opts.Urls) {
-                var visit = new Visit(url);
+                opts.url = url;
+                var visit = MakeVisitFromOptions(opts,ajax);
                 results.AddVisit(visit);
                 req(url, visit, results);
             }
         }
 
-        MulticastResults MulticastWaitResult(AjaxOptions opts)
+        static MulticastResults MulticastWaitResult(AjaxOptions opts,Ajax ajax=null)
         {
-            var results = new MulticastResults(this, opts);
-            foreach (var url in opts.Urls)
-            {
-                var visit = new Visit(opts.url = url);
-                results.AddVisit(visit);
-                var ret = InternalRequest(opts, (ret1, opt, aurl, me) => {
-                    visit.Result = ret1;
-                    results.AddSuccess(visit);
-                }, (err, opt, aurl, me) => {
-                    visit.Exception = err;
-                    results.AddError(visit);
-                    return true;
-                });
-            }
-            if (results.Errors.Count > 0)
-            {
-                if (opts.error != null)
-                {
-                    if (!opts.error(results, opts, null, this)) throw results;
-                }
-                else
-                {
-                    throw results;
-                }
-            }
-            else
-            {
-                if (opts.success != null) opts.success(results, opts, null, this);
-            }
-            return results;
-        }
-
-        async Task<MulticastResults> MulticastWaitResultAsync(AjaxOptions opts) {
-            var results = new MulticastResults(this,opts);
+            var results = new MulticastResults(ajax, opts);
             foreach (var url in opts.Urls)
             {
                 opts.url = url;
-                var visit = new Visit(url);
+                var visit = MakeVisitFromOptions(opts,ajax);
                 results.AddVisit(visit);
-                var es = await this.InternalRequestAsync(opts, (ret, option, actualUrl, me) => {
+                var ret = InternalRequest(visit, (ret1, v) => {
+                    visit.Result = ret1;
+                    results.AddSuccess(visit);
+                }, (err, v) => {
+                    visit.Exception = err;
+                    results.AddError(visit);
+                    return true;
+                });
+            }
+            if (results.Errors.Count > 0)
+            {
+                if (opts.error != null)
+                {
+                    if (!opts.error(results, new Visit(opts,ajax))) throw results;
+                }
+                else
+                {
+                    throw results;
+                }
+            }
+            else
+            {
+                if (opts.success != null) opts.success(results, new Visit(opts,ajax));
+            }
+            return results;
+        }
+
+        static async Task<MulticastResults> MulticastWaitResultAsync(AjaxOptions opts,Ajax ajax= null) {
+            var results = new MulticastResults(ajax,opts);
+            foreach (var url in opts.Urls)
+            {
+                opts.url = url;
+                var visit = MakeVisitFromOptions(opts,ajax);
+                results.AddVisit(visit);
+                var es = await InternalRequestAsync(visit, (ret, v) => {
                     visit.Result = ret;
                     results.AddSuccess(visit);
-                }, (err, option, actualUrl, me) => {
+                }, (err, v) => {
                     visit.Exception = err;
                     results.AddError(visit);
                     return true;
@@ -209,7 +220,7 @@ namespace Itec.Promises
             {
                 if (opts.error != null)
                 {
-                    if (!opts.error(results, opts, null, this)) throw results;
+                    if (!opts.error(results, new Visit(opts,ajax))) throw results;
                 }
                 else
                 {
@@ -218,77 +229,23 @@ namespace Itec.Promises
             }
             else
             {
-                if (opts.success != null) opts.success(results, opts, null, this);
+                if (opts.success != null) opts.success(results, new Visit(opts,ajax));
             }
             return results;
         }
 
-        object InternalRequest(AjaxOptions opts, Action<object, AjaxOptions, string, Ajax> success, Func<Exception, AjaxOptions, string, Ajax,bool> error) {
+        static Visit MakeVisitFromOptions(AjaxOptions opts,Ajax ajax) {
+            var visit = new Visit(opts,ajax);
             
+            var method = visit.Method = (opts.method ?? "GET").ToUpper();
             
-            //method
-            var method = (opts.method ?? "GET").ToUpper();
-
-            //type
             var type = opts.type;
             MineType requestContentType = null;
-            if (!contentTypes.TryGetValue(type, out requestContentType)) {
-                requestContentType = MineType.Request;
-            }
-
-            var data = requestContentType.Serialize(opts.data);
-
-            var url = opts.url ?? string.Empty;
-            if (method == "GET") {
-                if (url.Contains("?")) url += "&";
-                else url += "?";
-            }
-            var _webClient = new WebClient();
-
-            string responseText = null;
-            try {
-                if (method == "POST" || method == "PUT")
-                {
-                    responseText = _webClient.UploadString(url, data);
-                }
-                else
-                {
-                    responseText = _webClient.DownloadString(url);
-                }
-            } catch (Exception ex) {
-                if (error != null)
-                {
-                    if (!error(ex, opts, url, this)) throw ex;
-                }
-                else throw ex;
-            }
-            
-            MineType responseContentType = null;
-            if (!contentTypes.TryGetValue(opts.dataType, out responseContentType))
-            {
-                responseContentType = MineType.Response;
-            }
-            var result =  responseContentType.Deserialize(responseText,this.ResponseType);
-            if (success != null) success(result, opts, url, this);
-            return result;
-        }
-
-        async Task<object> InternalRequestAsync(AjaxOptions opts, Action<object, AjaxOptions, string, Ajax> success, Func<Exception, AjaxOptions, string, Ajax,bool> error)
-        {
-
-
-            //method
-            var method = (opts.method ?? "GET").ToUpper();
-
-            //type
-            var type = opts.type;
-            MineType requestContentType = null;
-            if (!contentTypes.TryGetValue(type, out requestContentType))
+            if (!MineType.MineTypes.TryGetValue(type, out requestContentType))
             {
                 requestContentType = MineType.Request;
             }
-
-            var data = requestContentType.Serialize(opts.data);
+            visit.Content = requestContentType.Serialize(opts.data);
 
             var url = opts.url ?? string.Empty;
             if (method == "GET")
@@ -296,28 +253,69 @@ namespace Itec.Promises
                 if (url.Contains("?")) url += "&";
                 else url += "?";
             }
+            visit.RequestUrl = url;
+            return visit;
+        }
+
+        internal static object InternalRequest(Visit visit, Action<object, Visit> success, Func<Exception, Visit,bool> error) {
             
+            var _webClient = new WebClient();
+
+            string responseText = null;
+            try {
+                if (visit.Method == "POST" || visit.Method == "PUT")
+                {
+                    responseText = _webClient.UploadString(visit.Method, visit.Content);
+                }
+                else
+                {
+                    responseText = _webClient.DownloadString(visit.Url);
+                }
+            } catch (Exception ex) {
+                if (error != null)
+                {
+                    if (!error(ex, visit)) throw ex;
+                }
+                else throw ex;
+            }
+            
+            MineType responseContentType = null;
+            var opts = visit.Options;
+            if (!MineType.MineTypes.TryGetValue(opts.dataType, out responseContentType))
+            {
+                responseContentType = MineType.Response;
+            }
+            var result =visit.Result=  responseContentType.Deserialize(responseText,visit.AjaxObject.ResponseType);
+            if (success != null) success(result, visit);
+            return result;
+        }
+
+        static internal async Task<object> InternalRequestAsync(Visit visit,Action<object, Visit> success, Func<Exception, Visit,bool> error)
+        {
+
+            var opts = visit.Options;
             HttpRequestMessage requestMessage = new HttpRequestMessage();
             
 
             using (HttpClient client = new HttpClient())
             {
-                HttpRequestMessage request = new HttpRequestMessage(GetMethod(method), url);
-                if (opts.headers != null)
+                HttpRequestMessage request = new HttpRequestMessage(GetMethod(visit.Method), visit.RequestUrl);
+                if (visit.RequstHeaders != null)
                 {
-                    foreach (var pair in opts.headers)
+                    foreach (var pair in visit.RequstHeaders)
                     {
                         request.Headers.Add(pair.Key, pair.Value);
                     }
                 }
-                request.Headers.Add("Content-Type", requestContentType.Value);
+                request.Content = new StringContent(visit.Content);
+                //request.Headers.Add("Content-Type", requestContentType.Value);
                 HttpResponseMessage response = null;
                 try {
                     response = await client.SendAsync(request);
                 } catch (Exception ex) {
                     if (error != null)
                     {
-                        if (!error(ex, opts, url, this)) throw ex;
+                        if (!error(ex, visit)) throw ex;
                         return null;
                     }
                     else throw ex;
@@ -325,21 +323,21 @@ namespace Itec.Promises
                 }
                 
 
-                this._ResponseHeaderGetter = (key) => {
+                visit.AjaxObject._ResponseHeaderGetter = (key) => {
                     var header = response.Content.Headers.GetValues(key);
                     return header?.FirstOrDefault();
                 };
 
                 MineType responseContentType = null;
-                if (!contentTypes.TryGetValue(opts.dataType, out responseContentType))
+                if (!MineType.MineTypes.TryGetValue(opts.dataType, out responseContentType))
                 {
                     responseContentType = MineType.Response;
                 }
 
                 if (responseContentType.ResponseKind == MineTypeKinds.Bytes)
                 {
-                    var result = await response.Content.ReadAsByteArrayAsync();
-                    if (success != null) success(result, opts, url, this);
+                    var result = visit.Result = await response.Content.ReadAsByteArrayAsync();
+                    if (success != null) success(result, visit);
 
                     return result;
                 }
@@ -349,13 +347,13 @@ namespace Itec.Promises
                     {
                         if (responseContentType.ResponseAsync)
                         {
-                            var result = await responseContentType.DeserializeAsync(stream);
-                            if (success != null) success(result, opts, url, this);
+                            var result =visit.Result = await responseContentType.DeserializeAsync(stream);
+                            if (success != null) success(result, visit);
                             return result;
                         }
                         else {
-                            var result = responseContentType.Deserialize(stream,this.ResponseType);
-                            if (success != null) success(result, opts, url, this);
+                            var result = visit.Result = responseContentType.Deserialize(stream,visit.AjaxObject.ResponseType);
+                            if (success != null) success(result, visit);
                             return result;
                         }
                         
@@ -363,8 +361,8 @@ namespace Itec.Promises
                 }
                 else {
                     
-                    var result=  responseContentType.Deserialize(await response.Content.ReadAsStringAsync(),null);
-                    if (success != null) success(result, opts, url, this);
+                    var result=visit.Result=  responseContentType.Deserialize(await response.Content.ReadAsStringAsync(),null);
+                    if (success != null) success(result, visit);
                     return result;
                 }
             }
